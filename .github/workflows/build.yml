@@ -1,0 +1,121 @@
+name: Auto Releases
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 23 * * *"
+
+jobs:
+
+  check:
+
+    outputs:
+      should_run: ${{ steps.checker.outputs.should_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+
+      - name: Checkout Celeritas
+        run: |
+          git clone https://git.taumc.org/embeddedt/celeritas.git
+
+      - name: Get latest hash
+        working-directory: ./celeritas
+        run: echo "COMMIT_HASH=$(git rev-parse $(git describe --tags --abbrev=0))" >> $GITHUB_ENV
+
+
+      - name: Get previous hash
+        run: echo "PREVIOUS_HASH=$(cat ./latest_commit)" >> $GITHUB_ENV
+
+      - name: Check if new commits appear
+        id: checker
+        run: |
+          if [[ "${{ env.COMMIT_HASH }}" == "${{ env.PREVIOUS_HASH }}" ]]
+          then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: [check]
+    if: needs.check.outputs.should_run == 'true'
+    steps:
+      - name: Debug
+        run: echo "${{ needs.check.outputs.should_run }}"
+
+      - name: Checkout this repository
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+
+      - name: Checkout Celeritas
+        run: |
+          git clone https://git.taumc.org/embeddedt/celeritas.git
+
+      - name: Get latest hash
+        working-directory: ./celeritas
+        run: echo "COMMIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
+
+
+      - name: Get previous hash
+        run: echo "PREVIOUS_HASH=$(cat ./latest_commit)" >> $GITHUB_ENV
+
+      - name: Get latest describe
+        working-directory: ./celeritas
+        run: echo "LATEST_DESCRIBE=$(git describe --tags)" >> $GITHUB_ENV
+
+      - name: Get current date
+        run: echo "CURRENT_DATE=$(date +'%Y%m%dT%H%M%S')" >> $GITHUB_ENV
+
+      - name: Write release body file
+        working-directory: ./celeritas
+        run: |
+          echo 'Built on commit: [link](https://git.taumc.org/embeddedt/celeritas/commit/$COMMIT_HASH)' >> body.md
+          echo >> body.md
+          git rev-list $PREVIOUS_HASH^..$COMMIT_HASH --pretty >> body.md
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4.7.1
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4.7.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Fix Gradle permission
+        run: chmod +x ./celeritas/gradlew
+
+      - name: Build Jars
+        working-directory: ./celeritas
+        run: ./gradlew -Ptarget_versions=1.12.2 packageJar
+
+      - name: Update hash storage
+        run: echo $COMMIT_HASH > ./latest_commit
+
+      # - name: Commit hash update
+      #   uses: EndBug/add-and-commit@v9.1.4
+      #   with:
+      #     add: 'latest_commit'
+      #     push: true
+      #     tag: ${{ env.LATEST_DESCRIBE }}-${{ env.CURRENT_DATE }}
+
+      - uses: ncipollo/release-action@v1.14.0
+        with:
+          artifacts: "celeritas/forge122/versions/1.12.2/build/libs/*"
+          generateReleaseNotes: false
+          bodyFile: "celeritas/body.md"
+          tag: ${{ env.LATEST_DESCRIBE }}-${{ env.CURRENT_DATE }}
