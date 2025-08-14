@@ -3,7 +3,7 @@ name: Auto Releases
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 23 * * *"
+    - cron: "0 0 * * *"
 
 jobs:
 
@@ -58,16 +58,19 @@ jobs:
           fetch-tags: true
           fetch-depth: 0
 
-      - name: Checkout Celeritas
+      - name: Clone Celeritas
         run: |
           git clone https://git.taumc.org/embeddedt/celeritas.git
 
-      - name: Get latest hash
+      - name: Get the hash of latest tag
         working-directory: ./celeritas
         run: echo "COMMIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
+      - name: Checkout to the hash of latest tag
+        working-directory: ./celeritas
+        run: git checkout $COMMIT_HASH
 
-      - name: Get previous hash
+      - name: Get the hash of previous tag
         run: echo "PREVIOUS_HASH=$(cat ./latest_commit)" >> $GITHUB_ENV
 
       - name: Get latest describe
@@ -106,12 +109,12 @@ jobs:
       - name: Update hash storage
         run: echo $COMMIT_HASH > ./latest_commit
 
-      # - name: Commit hash update
-      #   uses: EndBug/add-and-commit@v9.1.4
-      #   with:
-      #     add: 'latest_commit'
-      #     push: true
-      #     tag: ${{ env.LATEST_DESCRIBE }}-${{ env.CURRENT_DATE }}
+      - name: Commit hash update
+        uses: EndBug/add-and-commit@v9.1.4
+        with:
+          add: 'latest_commit'
+          push: true
+          tag: ${{ env.LATEST_DESCRIBE }}-${{ env.CURRENT_DATE }}
 
       - uses: ncipollo/release-action@v1.14.0
         with:
